@@ -7,6 +7,7 @@ import { useSiweAuth } from "./hooks/useSiwe";
 import { useEip191Auth } from "./hooks/useEip191";
 import { useEip712Auth } from "./hooks/useEip712";
 import { useMempool } from "./hooks/useMempool";
+import { useUsdtTransfers } from "./hooks/useUsdtTransfers";
 
 function App() {
   const [messageToSign, setMessageToSign] = useState("Hello from ethers.js");
@@ -98,6 +99,15 @@ function App() {
     stopMonitoring,
     clearPendingTxs,
   } = useMempool(provider, watchCurrentAccountOnly ? account : null);
+
+  const {
+    transfers: usdtTransfers,
+    isListening: isListeningUsdt,
+    error: usdtError,
+    startListening: startUsdtListener,
+    stopListening: stopUsdtListener,
+    resetTransfers: resetUsdtTransfers,
+  } = useUsdtTransfers();
 
   useEffect(() => {
     resetSiwe();
@@ -646,6 +656,91 @@ function App() {
                     <div>
                       <dt className="text-slate-500">Nonce</dt>
                       <dd className="text-slate-200">{tx.nonce ?? "--"}</dd>
+                    </div>
+                  </dl>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-sm shadow-slate-900">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                USDT Transfer 实时监听 (Infura Mainnet RPC)
+              </h2>
+              <p className="text-sm text-slate-400">
+                通过 `contract.on('Transfer')` 直接订阅主网 USDT 的事件，演示如何脱离
+                MetaMask provider 使用独立 RPC。
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              onClick={isListeningUsdt ? stopUsdtListener : startUsdtListener}
+              className="flex-1 rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isListeningUsdt ? "Stop listening" : "Start listening"}
+            </button>
+            <button
+              onClick={resetUsdtTransfers}
+              className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:border-slate-500"
+            >
+              Clear list
+            </button>
+          </div>
+
+          {usdtError && (
+            <p className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              {usdtError}
+            </p>
+          )}
+
+          {!usdtTransfers.length && (
+            <p className="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-4 text-sm text-slate-400">
+              {isListeningUsdt
+                ? "已连接订阅，等待链上 Transfer 事件..."
+                : "点击 Start listening 即可订阅主网 USDT 的 Transfer 日志"}
+            </p>
+          )}
+
+          {usdtTransfers.length > 0 && (
+            <ul className="mt-5 space-y-3">
+              {usdtTransfers.map((transfer) => (
+                <li
+                  key={`${transfer.txHash}-${transfer.blockNumber ?? "pending"}`}
+                  className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
+                >
+                  <div className="flex flex-col gap-2 text-sm text-slate-300 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="font-mono text-xs text-slate-400 break-all">
+                      {transfer.txHash}
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      Block {transfer.blockNumber ?? "--"} ·
+                      {" "}
+                      {transfer.timestamp
+                        ? new Date(transfer.timestamp * 1000).toLocaleString()
+                        : "time unknown"}
+                    </div>
+                  </div>
+                  <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                    <div>
+                      <dt className="text-slate-500">From</dt>
+                      <dd className="font-mono text-slate-100">
+                        {transfer.from}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">To</dt>
+                      <dd className="font-mono text-slate-100">{transfer.to}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">Amount</dt>
+                      <dd className="text-emerald-300 font-semibold">
+                        {transfer.amount} USDT
+                      </dd>
                     </div>
                   </dl>
                 </li>

@@ -25,7 +25,9 @@ function App() {
   const [usdtFromFilter, setUsdtFromFilter] = useState("");
   const [usdtToFilter, setUsdtToFilter] = useState("");
   const [usdtFilterError, setUsdtFilterError] = useState<string | null>(null);
-  const [simulationTo, setSimulationTo] = useState("0xdAC17F958D2ee523a2206206994597C13D831ec7");
+  const [simulationTo, setSimulationTo] = useState(
+    "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+  );
   const [simulationValue, setSimulationValue] = useState("0.01");
   const [simulationData, setSimulationData] = useState("");
   const [blockNumberInput, setBlockNumberInput] = useState("");
@@ -43,7 +45,10 @@ function App() {
     >
   >({});
   const [resendStatus, setResendStatus] = useState<
-    Record<string, { loading: boolean; error: string | null; success: string | null }>
+    Record<
+      string,
+      { loading: boolean; error: string | null; success: string | null }
+    >
   >({});
 
   const {
@@ -219,7 +224,14 @@ function App() {
     resetEip712();
     resetErc20();
     resetSimulation();
-  }, [account, resetSiwe, resetEip191, resetEip712, resetErc20, resetSimulation]);
+  }, [
+    account,
+    resetSiwe,
+    resetEip191,
+    resetEip712,
+    resetErc20,
+    resetSimulation,
+  ]);
 
   useEffect(() => {
     if (!account) {
@@ -312,12 +324,12 @@ function App() {
         if (!next[tx.hash]) {
           if (tx.maxFeePerGasGwei) {
             const base = Number(tx.maxFeePerGasGwei);
-            const priorityBase = Number(tx.maxPriorityFeePerGasGwei ?? tx.maxFeePerGasGwei ?? "0");
+            const priorityBase = Number(
+              tx.maxPriorityFeePerGasGwei ?? tx.maxFeePerGasGwei ?? "0"
+            );
             next[tx.hash] = {
               maxFee: base ? (base * 1.1).toFixed(2) : "",
-              maxPriority: priorityBase
-                ? (priorityBase * 1.2).toFixed(2)
-                : "",
+              maxPriority: priorityBase ? (priorityBase * 1.2).toFixed(2) : "",
             };
           } else {
             const gasPriceBase = Number(tx.gasPriceGwei ?? "0");
@@ -433,7 +445,9 @@ function App() {
             <dl className="mt-4 space-y-3 text-sm">
               <div className="flex justify-between">
                 <dt className="text-slate-400">Account</dt>
-                <dd className="font-mono text-slate-100">{account ?? "--"}</dd>
+                <dd className="font-mono text-slate-100 break-all">
+                  {account ?? "--"}
+                </dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-slate-400">Balance</dt>
@@ -521,7 +535,7 @@ function App() {
               </div>
             )}
             {siweError && (
-              <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+              <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200 break-all">
                 {siweError}
               </p>
             )}
@@ -820,7 +834,8 @@ function App() {
                 Transaction simulation & gas estimate
               </h2>
               <p className="text-sm text-slate-400">
-                使用 `estimateGas`+`call` 预估 gas / 费用并提前捕获可能的 revert 原因。
+                使用 `estimateGas`+`call` 预估 gas / 费用并提前捕获可能的 revert
+                原因。
               </p>
             </div>
           </div>
@@ -906,7 +921,8 @@ function App() {
                       : "--"}
                   </p>
                   <p className="text-xs text-slate-400">
-                    Estimated fee: {simulationResult.estimatedFeeEth ?? "--"} ETH
+                    Estimated fee: {simulationResult.estimatedFeeEth ?? "--"}{" "}
+                    ETH
                   </p>
                 </div>
               </div>
@@ -921,16 +937,18 @@ function App() {
                 >
                   {simulationResult.callSuccess ? "Success" : "Reverted"}
                 </p>
-                {simulationResult.callSuccess && simulationResult.callOutput && (
-                  <p className="mt-1 font-mono text-xs text-slate-400 break-all">
-                    Output: {simulationResult.callOutput}
-                  </p>
-                )}
-                {!simulationResult.callSuccess && simulationResult.revertReason && (
-                  <p className="mt-1 text-xs text-rose-200">
-                    Reason: {simulationResult.revertReason}
-                  </p>
-                )}
+                {simulationResult.callSuccess &&
+                  simulationResult.callOutput && (
+                    <p className="mt-1 font-mono text-xs text-slate-400 break-all">
+                      Output: {simulationResult.callOutput}
+                    </p>
+                  )}
+                {!simulationResult.callSuccess &&
+                  simulationResult.revertReason && (
+                    <p className="mt-1 text-xs text-rose-200">
+                      Reason: {simulationResult.revertReason}
+                    </p>
+                  )}
               </div>
             </div>
           )}
@@ -943,8 +961,8 @@ function App() {
                 ERC-20 多合约批量读取（Multicall3）
               </h2>
               <p className="text-sm text-slate-400">
-                一次 RPC 请求批量获取多个合约的 name / symbol / decimals，并在连接钱包后同步读取
-                balanceOf。
+                一次 RPC 请求批量获取多个合约的 name / symbol /
+                decimals，并在连接钱包后同步读取 balanceOf。
               </p>
             </div>
           </div>
@@ -1071,8 +1089,9 @@ function App() {
                 On-chain state snapshots
               </h2>
               <p className="text-sm text-slate-400">
-                直接调用 provider.getBlock / getTransaction / getTransactionReceipt / getFeeData，
-                查看实时区块、交易与 gas 费率信息。
+                直接调用 provider.getBlock / getTransaction /
+                getTransactionReceipt / getFeeData， 查看实时区块、交易与 gas
+                费率信息。
               </p>
             </div>
           </div>
@@ -1182,7 +1201,9 @@ function App() {
                   <div>
                     <dt className="text-slate-500">Timestamp</dt>
                     <dd className="text-white">
-                      {new Date(blockSnapshot.timestamp * 1000).toLocaleString()}
+                      {new Date(
+                        blockSnapshot.timestamp * 1000
+                      ).toLocaleString()}
                     </dd>
                   </div>
                   <div>
@@ -1207,7 +1228,9 @@ function App() {
                   </div>
                   <div>
                     <dt className="text-slate-500">Tx count</dt>
-                    <dd className="text-white">{blockSnapshot.transactionCount}</dd>
+                    <dd className="text-white">
+                      {blockSnapshot.transactionCount}
+                    </dd>
                   </div>
                 </dl>
               </div>
@@ -1247,7 +1270,8 @@ function App() {
                     <dt className="text-slate-500">Max fee / priority</dt>
                     <dd className="text-white">
                       {transactionSnapshot.maxFeePerGasGwei ?? "--"} /{" "}
-                      {transactionSnapshot.maxPriorityFeePerGasGwei ?? "--"} gwei
+                      {transactionSnapshot.maxPriorityFeePerGasGwei ?? "--"}{" "}
+                      gwei
                     </dd>
                   </div>
                   <div>
@@ -1260,7 +1284,8 @@ function App() {
                   <div>
                     <dt className="text-slate-500">Type / nonce</dt>
                     <dd className="text-white">
-                      {transactionSnapshot.type ?? "--"} / {transactionSnapshot.nonce}
+                      {transactionSnapshot.type ?? "--"} /{" "}
+                      {transactionSnapshot.nonce}
                     </dd>
                   </div>
                 </dl>
@@ -1291,7 +1316,8 @@ function App() {
                   <div>
                     <dt className="text-slate-500">Block / confirmations</dt>
                     <dd className="text-white">
-                      {receiptSnapshot.blockNumber} · {receiptSnapshot.confirmations}
+                      {receiptSnapshot.blockNumber} ·{" "}
+                      {receiptSnapshot.confirmations}
                     </dd>
                   </div>
                   <div>
@@ -1369,8 +1395,8 @@ function App() {
                 Gas & nonce management
               </h2>
               <p className="text-sm text-slate-400">
-                展示当前账号的 nonce 队列与未确认交易，支持自定义 maxFeePerGas / maxPriorityFeePerGas
-                进行 replaceTx（或 legacy gasPrice）重发。
+                展示当前账号的 nonce 队列与未确认交易，支持自定义 maxFeePerGas /
+                maxPriorityFeePerGas 进行 replaceTx（或 legacy gasPrice）重发。
               </p>
             </div>
             <div className="flex flex-wrap gap-2 text-xs text-slate-300">
@@ -1550,7 +1576,9 @@ function App() {
                     disabled={!account || resendStatus[tx.hash]?.loading}
                     className="rounded-lg bg-rose-500 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {resendStatus[tx.hash]?.loading ? "Broadcasting..." : "Resend"}
+                    {resendStatus[tx.hash]?.loading
+                      ? "Broadcasting..."
+                      : "Resend"}
                   </button>
                   <button
                     onClick={() => removePendingTx(tx.hash)}
@@ -1591,7 +1619,9 @@ function App() {
                 type="checkbox"
                 className="h-4 w-4 rounded border border-slate-600 bg-slate-900 text-emerald-400 focus:ring-emerald-400"
                 checked={watchCurrentAccountOnly}
-                onChange={(event) => setWatchCurrentAccountOnly(event.target.checked)}
+                onChange={(event) =>
+                  setWatchCurrentAccountOnly(event.target.checked)
+                }
                 disabled={!account}
               />
               只跟踪当前钱包
@@ -1639,11 +1669,15 @@ function App() {
                   <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
                     <div>
                       <dt className="text-slate-500">From</dt>
-                      <dd className="font-mono text-slate-100">{tx.from ?? "--"}</dd>
+                      <dd className="font-mono text-slate-100">
+                        {tx.from ?? "--"}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-slate-500">To</dt>
-                      <dd className="font-mono text-slate-100">{tx.to ?? "--"}</dd>
+                      <dd className="font-mono text-slate-100">
+                        {tx.to ?? "--"}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-slate-500">Value</dt>
@@ -1679,8 +1713,8 @@ function App() {
                 USDT Transfer 实时监听 (Infura Mainnet RPC)
               </h2>
               <p className="text-sm text-slate-400">
-                通过 `contract.on('Transfer')` 直接订阅主网 USDT 的事件，演示如何脱离
-                MetaMask provider 使用独立 RPC。
+                通过 `contract.on('Transfer')` 直接订阅主网 USDT
+                的事件，演示如何脱离 MetaMask provider 使用独立 RPC。
               </p>
             </div>
           </div>
@@ -1714,7 +1748,9 @@ function App() {
 
           <div className="mt-4 flex flex-wrap gap-3">
             <button
-              onClick={isListeningUsdt ? stopUsdtListener : handleStartUsdtListener}
+              onClick={
+                isListeningUsdt ? stopUsdtListener : handleStartUsdtListener
+              }
               className="flex-1 rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isListeningUsdt ? "Stop listening" : "Start listening"}
@@ -1751,7 +1787,9 @@ function App() {
             <ul className="mt-5 space-y-3">
               {usdtTransfers.map((transfer) => (
                 <li
-                  key={`${transfer.txHash}-${transfer.blockNumber ?? "pending"}`}
+                  key={`${transfer.txHash}-${
+                    transfer.blockNumber ?? "pending"
+                  }`}
                   className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
                 >
                   <div className="flex flex-col gap-2 text-sm text-slate-300 sm:flex-row sm:items-center sm:justify-between">
@@ -1759,8 +1797,7 @@ function App() {
                       {transfer.txHash}
                     </div>
                     <div className="text-xs text-slate-400">
-                      Block {transfer.blockNumber ?? "--"} ·
-                      {" "}
+                      Block {transfer.blockNumber ?? "--"} ·{" "}
                       {transfer.timestamp
                         ? new Date(transfer.timestamp * 1000).toLocaleString()
                         : "time unknown"}
@@ -1775,7 +1812,9 @@ function App() {
                     </div>
                     <div>
                       <dt className="text-slate-500">To</dt>
-                      <dd className="font-mono text-slate-100">{transfer.to}</dd>
+                      <dd className="font-mono text-slate-100">
+                        {transfer.to}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-slate-500">Amount</dt>

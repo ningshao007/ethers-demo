@@ -44,7 +44,7 @@ const ERC20_ABI = [
 ];
 
 // Maker publishes a DAI test token on Sepolia at this address (double-check before using).
-const SAMPLE_SEPOLIA_DAI = "0x68194a729c2450ad26072b3d33adf7e4c9b2b7aa";
+const ENA_DAI = "0x57e114B691Db790C35207b2e685D4A43181e6061";
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:3000";
 
 function App() {
@@ -59,7 +59,7 @@ function App() {
   const [messageToSign, setMessageToSign] = useState("Hello from ethers.js");
   const [signature, setSignature] = useState<string>("");
   const [isSigning, setIsSigning] = useState(false);
-  const [erc20Address, setErc20Address] = useState(SAMPLE_SEPOLIA_DAI);
+  const [erc20Address, setErc20Address] = useState(ENA_DAI);
   const [erc20Info, setErc20Info] = useState<Erc20Info | null>(null);
   const [erc20Loading, setErc20Loading] = useState(false);
   const [contractError, setContractError] = useState<string | null>(null);
@@ -559,9 +559,9 @@ function App() {
             </div>
             <button
               className="text-xs font-semibold uppercase tracking-wide text-slate-400 underline-offset-2 hover:text-white hover:underline"
-              onClick={() => setErc20Address(SAMPLE_SEPOLIA_DAI)}
+              onClick={() => setErc20Address(ENA_DAI)}
             >
-              Use Sepolia sample
+              Use ENA sample
             </button>
           </div>
 

@@ -3,11 +3,13 @@ import {
   Contract,
   formatEther,
   formatUnits,
+  getAddress,
   isAddress,
   parseUnits,
 } from "ethers";
 import type { Eip1193Provider, JsonRpcSigner } from "ethers";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { SiweMessage } from "siwe";
 
 declare global {
   interface Window {
@@ -42,7 +44,8 @@ const ERC20_ABI = [
 ];
 
 // Maker publishes a DAI test token on Sepolia at this address (double-check before using).
-const BNB_DAI = "0xB8c77482e45F1F44dE1745F52C74426C631bDD52";
+const SAMPLE_SEPOLIA_DAI = "0x68194a729c2450ad26072b3d33adf7e4c9b2b7aa";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:3000";
 
 function App() {
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
@@ -56,7 +59,7 @@ function App() {
   const [messageToSign, setMessageToSign] = useState("Hello from ethers.js");
   const [signature, setSignature] = useState<string>("");
   const [isSigning, setIsSigning] = useState(false);
-  const [erc20Address, setErc20Address] = useState(BNB_DAI);
+  const [erc20Address, setErc20Address] = useState(SAMPLE_SEPOLIA_DAI);
   const [erc20Info, setErc20Info] = useState<Erc20Info | null>(null);
   const [erc20Loading, setErc20Loading] = useState(false);
   const [contractError, setContractError] = useState<string | null>(null);
@@ -67,6 +70,16 @@ function App() {
   );
   const [txHash, setTxHash] = useState("");
   const [txError, setTxError] = useState<string | null>(null);
+  const [siweSession, setSiweSession] = useState<{
+    address: string;
+    chainId: number;
+    issuedAt?: string;
+  } | null>(null);
+  const [siweStatus, setSiweStatus] = useState<"idle" | "authenticated">(
+    "idle"
+  );
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [siweError, setSiweError] = useState<string | null>(null);
 
   const hasMetaMask = useMemo(
     () => typeof window !== "undefined" && Boolean(window.ethereum),
@@ -117,14 +130,15 @@ function App() {
       const provider = new BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
       const network = await provider.getNetwork();
+      const checksummedAccount = getAddress(accounts[0]);
 
       setProvider(provider);
       setSigner(signer);
-      setAccount(accounts[0]);
+      setAccount(checksummedAccount);
       setChainId(Number(network.chainId));
       setNetworkName(network.name);
       setWalletError(null);
-      const value = await provider.getBalance(accounts[0]);
+      const value = await provider.getBalance(checksummedAccount);
       setBalance(formatEther(value));
     } catch (error) {
       const err = error as { code?: number; message?: string };
@@ -266,6 +280,82 @@ function App() {
     loadErc20Details,
   ]);
 
+  const signInWithEthereum = useCallback(async () => {
+    if (!signer || !account) {
+      setSiweError("Connect MetaMask before starting SIWE");
+      return;
+    }
+
+    setIsAuthenticating(true);
+    setSiweError(null);
+
+    try {
+      const nonceResponse = await fetch(`${BACKEND_URL}/auth/nonce`, {
+        credentials: "include",
+      });
+
+      if (!nonceResponse.ok) {
+        throw new Error("Server failed to issue a nonce");
+      }
+
+      const noncePayload = await nonceResponse.json();
+      const nonce = noncePayload?.nonce;
+
+      if (!nonce) {
+        throw new Error("Nonce missing from response");
+      }
+
+      const siweMessage = new SiweMessage({
+        domain: window.location.host,
+        address: account,
+        statement: "Sign in with Ethereum to continue.",
+        uri: window.location.origin,
+        version: "1",
+        chainId: chainId ?? 1,
+        nonce,
+      });
+      const preparedMessage = siweMessage.prepareMessage();
+      const signatureValue = await signer.signMessage(preparedMessage);
+
+      const verifyResponse = await fetch(`${BACKEND_URL}/auth/verify`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          message: preparedMessage,
+          signature: signatureValue,
+        }),
+      });
+
+      if (!verifyResponse.ok) {
+        const payload = await verifyResponse.json().catch(() => null);
+        throw new Error(payload?.message ?? "Signature verification failed");
+      }
+
+      const session = await verifyResponse.json();
+      setSiweSession({
+        address: session.address,
+        issuedAt: session.issuedAt,
+        chainId: session.chainId,
+      });
+      setSiweStatus("authenticated");
+    } catch (error) {
+      setSiweError((error as Error).message);
+      setSiweSession(null);
+      setSiweStatus("idle");
+    } finally {
+      setIsAuthenticating(false);
+    }
+  }, [signer, account, chainId]);
+
+  const logoutSiwe = useCallback(() => {
+    setSiweSession(null);
+    setSiweStatus("idle");
+    setSiweError(null);
+  }, []);
+
   useEffect(() => {
     const ethereum = window.ethereum;
     if (!ethereum || !provider) return;
@@ -278,14 +368,19 @@ function App() {
         return;
       }
 
-      setAccount(nextAccounts[0]);
+      const normalizedAccount = getAddress(nextAccounts[0]);
+
+      setAccount(normalizedAccount);
+      setSiweSession(null);
+      setSiweStatus("idle");
+      setSiweError(null);
 
       provider
         .getSigner()
         .then(setSigner)
         .catch((error) => setWalletError((error as Error).message));
       provider
-        .getBalance(nextAccounts[0])
+        .getBalance(normalizedAccount)
         .then((value) => setBalance(formatEther(value)))
         .catch((error) => setWalletError((error as Error).message));
     };
@@ -348,7 +443,7 @@ function App() {
           )}
         </header>
 
-        <section className="grid gap-6 md:grid-cols-2">
+        <section className="grid gap-6 md:grid-cols-3">
           <article className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 shadow-sm shadow-slate-900">
             <h2 className="text-lg font-semibold text-white">
               Wallet snapshot
@@ -406,6 +501,49 @@ function App() {
               </div>
             )}
           </article>
+
+          <article className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 shadow-sm shadow-slate-900">
+            <h2 className="text-lg font-semibold text-white">
+              Sign-In with Ethereum
+            </h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Requests a nonce from the NestJS backend, signs it with the
+              connected wallet, and verifies the signature server-side.
+            </p>
+            <button
+              onClick={
+                siweStatus === "authenticated" ? logoutSiwe : signInWithEthereum
+              }
+              disabled={!account || isAuthenticating}
+              className="mt-6 w-full rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {siweStatus === "authenticated"
+                ? "Sign out of SIWE"
+                : isAuthenticating
+                ? "Verifying..."
+                : "Sign-In with Ethereum"}
+            </button>
+
+            {siweSession && (
+              <div className="mt-4 space-y-1 rounded-xl border border-emerald-400/30 bg-emerald-500/5 p-4 text-sm font-mono text-emerald-200">
+                <p className="text-xs uppercase text-emerald-400">Address</p>
+                <p className="break-all">{siweSession.address}</p>
+                <p className="text-xs uppercase text-emerald-400">
+                  Chain #{siweSession.chainId}
+                </p>
+                {siweSession.issuedAt && (
+                  <p className="text-xs text-slate-400">
+                    Issued at {siweSession.issuedAt}
+                  </p>
+                )}
+              </div>
+            )}
+            {siweError && (
+              <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+                {siweError}
+              </p>
+            )}
+          </article>
         </section>
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-sm shadow-slate-900">
@@ -421,9 +559,9 @@ function App() {
             </div>
             <button
               className="text-xs font-semibold uppercase tracking-wide text-slate-400 underline-offset-2 hover:text-white hover:underline"
-              onClick={() => setErc20Address(BNB_DAI)}
+              onClick={() => setErc20Address(SAMPLE_SEPOLIA_DAI)}
             >
-              Use BNB sample
+              Use Sepolia sample
             </button>
           </div>
 

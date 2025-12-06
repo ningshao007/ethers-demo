@@ -8,6 +8,7 @@ import { useEip191Auth } from "./hooks/useEip191";
 import { useEip712Auth } from "./hooks/useEip712";
 import { useMempool } from "./hooks/useMempool";
 import { useUsdtTransfers } from "./hooks/useUsdtTransfers";
+import { useTxSimulation } from "./hooks/useTxSimulation";
 import { getAddress, isAddress } from "ethers";
 
 function App() {
@@ -18,6 +19,9 @@ function App() {
   const [usdtFromFilter, setUsdtFromFilter] = useState("");
   const [usdtToFilter, setUsdtToFilter] = useState("");
   const [usdtFilterError, setUsdtFilterError] = useState<string | null>(null);
+  const [simulationTo, setSimulationTo] = useState("0xdAC17F958D2ee523a2206206994597C13D831ec7");
+  const [simulationValue, setSimulationValue] = useState("0.01");
+  const [simulationData, setSimulationData] = useState("");
 
   const {
     provider,
@@ -128,12 +132,21 @@ function App() {
     to: normalizedUsdtTo,
   });
 
+  const {
+    simulateTransaction,
+    isSimulating,
+    result: simulationResult,
+    error: simulationError,
+    resetSimulation,
+  } = useTxSimulation({ provider, account });
+
   useEffect(() => {
     resetSiwe();
     resetEip191();
     resetEip712();
     resetErc20();
-  }, [account, resetSiwe, resetEip191, resetEip712, resetErc20]);
+    resetSimulation();
+  }, [account, resetSiwe, resetEip191, resetEip712, resetErc20, resetSimulation]);
 
   useEffect(() => {
     if (!account) {
@@ -172,6 +185,14 @@ function App() {
     setUsdtFilterError(null);
     startUsdtListener();
   }, [usdtFromFilter, usdtToFilter, startUsdtListener]);
+
+  const handleSimulateTransaction = useCallback(() => {
+    simulateTransaction({
+      to: simulationTo,
+      valueEth: simulationValue,
+      data: simulationData,
+    });
+  }, [simulateTransaction, simulationTo, simulationValue, simulationData]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -592,6 +613,129 @@ function App() {
                 {txStatus === "confirmed" && (
                   <p className="text-xs font-semibold text-emerald-300">
                     Transfer confirmed
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-sm shadow-slate-900">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Transaction simulation & gas estimate
+              </h2>
+              <p className="text-sm text-slate-400">
+                使用 `estimateGas`+`call` 预估 gas / 费用并提前捕获可能的 revert 原因。
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <label className="text-xs uppercase tracking-wide text-slate-400">
+              To 地址
+              <input
+                value={simulationTo}
+                onChange={(event) => {
+                  setSimulationTo(event.target.value);
+                  resetSimulation();
+                }}
+                placeholder="0x..."
+                className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 font-mono text-sm text-slate-100 outline-none focus:border-emerald-400"
+              />
+            </label>
+            <label className="text-xs uppercase tracking-wide text-slate-400">
+              ETH 数量
+              <input
+                value={simulationValue}
+                onChange={(event) => {
+                  setSimulationValue(event.target.value);
+                  resetSimulation();
+                }}
+                className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
+              />
+            </label>
+          </div>
+          <label className="mt-4 block text-xs uppercase tracking-wide text-slate-400">
+            Data（可选）
+            <textarea
+              value={simulationData}
+              onChange={(event) => {
+                setSimulationData(event.target.value);
+                resetSimulation();
+              }}
+              placeholder="0x..."
+              rows={3}
+              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/60 p-3 font-mono text-sm text-slate-100 outline-none focus:border-emerald-400"
+            />
+          </label>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              onClick={handleSimulateTransaction}
+              disabled={!account || isSimulating}
+              className="flex-1 rounded-lg bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-900 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSimulating ? "Simulating..." : "Simulate transaction"}
+            </button>
+            <button
+              onClick={resetSimulation}
+              className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:border-slate-500"
+            >
+              Clear result
+            </button>
+          </div>
+
+          {simulationError && (
+            <p className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              {simulationError}
+            </p>
+          )}
+
+          {simulationResult && (
+            <div className="mt-4 space-y-3 rounded-2xl border border-slate-800 bg-slate-950/50 p-4 text-sm">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="text-slate-500">Gas estimate</p>
+                  <p className="font-semibold text-white">
+                    {simulationResult.gasEstimate} units
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    ({simulationResult.gasEstimateHex})
+                  </p>
+                </div>
+                <div>
+                  <p className="text-slate-500">Gas price (suggested)</p>
+                  <p className="font-semibold text-white">
+                    {simulationResult.gasPriceGwei
+                      ? `${simulationResult.gasPriceGwei} gwei`
+                      : "--"}
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Estimated fee: {simulationResult.estimatedFeeEth ?? "--"} ETH
+                  </p>
+                </div>
+              </div>
+              <div>
+                <p className="text-slate-500">Call status</p>
+                <p
+                  className={`font-semibold ${
+                    simulationResult.callSuccess
+                      ? "text-emerald-300"
+                      : "text-rose-300"
+                  }`}
+                >
+                  {simulationResult.callSuccess ? "Success" : "Reverted"}
+                </p>
+                {simulationResult.callSuccess && simulationResult.callOutput && (
+                  <p className="mt-1 font-mono text-xs text-slate-400 break-all">
+                    Output: {simulationResult.callOutput}
+                  </p>
+                )}
+                {!simulationResult.callSuccess && simulationResult.revertReason && (
+                  <p className="mt-1 text-xs text-rose-200">
+                    Reason: {simulationResult.revertReason}
                   </p>
                 )}
               </div>

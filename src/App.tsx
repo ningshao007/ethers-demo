@@ -1,172 +1,99 @@
-import {
-  BrowserProvider,
-  Contract,
-  formatEther,
-  formatUnits,
-  getAddress,
-  isAddress,
-  parseUnits,
-} from "ethers";
-import type { Eip1193Provider, JsonRpcSigner } from "ethers";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { SiweMessage } from "siwe";
-
-declare global {
-  interface Window {
-    ethereum?: Eip1193Provider & {
-      isMetaMask?: boolean;
-      on?: (event: string, handler: (...args: unknown[]) => void) => void;
-      removeListener?: (
-        event: string,
-        handler: (...args: unknown[]) => void
-      ) => void;
-      request?: (args: {
-        method: string;
-        params?: unknown[] | Record<string, unknown>;
-      }) => Promise<unknown>;
-    };
-  }
-}
-
-type Erc20Info = {
-  name: string;
-  symbol: string;
-  decimals: number;
-  balance?: string;
-};
-
-const ERC20_ABI = [
-  "function name() view returns (string)",
-  "function symbol() view returns (string)",
-  "function decimals() view returns (uint8)",
-  "function balanceOf(address owner) view returns (uint256)",
-  "function transfer(address to, uint256 value) returns (bool)",
-];
-
-// Maker publishes a DAI test token on Sepolia at this address (double-check before using).
-const ENA_DAI = "0x57e114B691Db790C35207b2e685D4A43181e6061";
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:3000";
+import "./App.css";
+import { useCallback, useEffect, useState } from "react";
+import { DEFAULT_ERC20_ADDRESS } from "./config/appConfig";
+import { useWallet } from "./hooks/useWallet";
+import { useErc20 } from "./hooks/useErc20";
+import { useSiweAuth } from "./hooks/useSiwe";
+import { useEip191Auth } from "./hooks/useEip191";
+import { useEip712Auth } from "./hooks/useEip712";
 
 function App() {
-  const [provider, setProvider] = useState<BrowserProvider | null>(null);
-  const [signer, setSigner] = useState<JsonRpcSigner | null>(null);
-  const [account, setAccount] = useState<string | null>(null);
-  const [chainId, setChainId] = useState<number | null>(null);
-  const [networkName, setNetworkName] = useState<string>("");
-  const [balance, setBalance] = useState<string>("");
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [walletError, setWalletError] = useState<string | null>(null);
   const [messageToSign, setMessageToSign] = useState("Hello from ethers.js");
-  const [signature, setSignature] = useState<string>("");
-  const [isSigning, setIsSigning] = useState(false);
-  const [erc20Address, setErc20Address] = useState(ENA_DAI);
-  const [erc20Info, setErc20Info] = useState<Erc20Info | null>(null);
-  const [erc20Loading, setErc20Loading] = useState(false);
-  const [contractError, setContractError] = useState<string | null>(null);
-  const [transferTo, setTransferTo] = useState("");
-  const [transferAmount, setTransferAmount] = useState("1");
-  const [txStatus, setTxStatus] = useState<"idle" | "pending" | "confirmed">(
-    "idle"
-  );
-  const [txHash, setTxHash] = useState("");
-  const [txError, setTxError] = useState<string | null>(null);
-  const [siweSession, setSiweSession] = useState<{
-    address: string;
-    chainId: number;
-    issuedAt?: string;
-  } | null>(null);
-  const [siweStatus, setSiweStatus] = useState<"idle" | "authenticated">(
-    "idle"
-  );
-  const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [siweError, setSiweError] = useState<string | null>(null);
+  const [personalSignature, setPersonalSignature] = useState("");
+  const [isSigningMessage, setIsSigningMessage] = useState(false);
 
-  const hasMetaMask = useMemo(
-    () => typeof window !== "undefined" && Boolean(window.ethereum),
-    []
-  );
+  const {
+    provider,
+    signer,
+    account,
+    chainId,
+    networkName,
+    balance,
+    isConnecting,
+    walletError,
+    hasMetaMask,
+    shortAccount,
+    connectWallet,
+    disconnectWallet,
+    refreshBalance,
+    setWalletError,
+  } = useWallet();
 
-  const shortAccount = useMemo(() => {
-    if (!account) return "";
-    return `${account.slice(0, 6)}...${account.slice(-4)}`;
-  }, [account]);
+  const {
+    erc20Address,
+    setErc20Address,
+    erc20Info,
+    erc20Loading,
+    contractError,
+    transferTo,
+    setTransferTo,
+    transferAmount,
+    setTransferAmount,
+    transferToken,
+    txStatus,
+    txHash,
+    txError,
+    loadErc20Details,
+    identifyErc20Contract,
+    erc20CheckStatus,
+    erc20CheckMessage,
+    clearErc20Info,
+    reset: resetErc20,
+  } = useErc20({
+    provider,
+    signer,
+    account,
+    refreshBalance,
+    defaultAddress: DEFAULT_ERC20_ADDRESS,
+  });
 
-  const refreshBalance = useCallback(async () => {
-    if (!provider || !account) return;
+  const {
+    siweSession,
+    siweStatus,
+    isAuthenticating,
+    siweError,
+    signInWithEthereum,
+    logoutSiwe,
+    resetSiwe,
+  } = useSiweAuth(signer, account, chainId);
 
-    try {
-      const value = await provider.getBalance(account);
-      setBalance(formatEther(value));
-    } catch (error) {
-      setWalletError((error as Error).message);
-    }
-  }, [provider, account]);
+  const {
+    nonce: eip191Nonce,
+    message: eip191Message,
+    signature: eip191Signature,
+    isSigning: isSigningEip191,
+    result: eip191Result,
+    error: eip191Error,
+    authenticateEip191,
+    resetEip191,
+  } = useEip191Auth(signer, account);
 
-  const connectWallet = useCallback(async () => {
-    if (!window.ethereum) {
-      setWalletError("MetaMask is not available in this browser");
-      return;
-    }
+  const {
+    challenge: eip712Challenge,
+    signature: eip712Signature,
+    result: eip712Result,
+    isSigning: isSigningEip712,
+    error: eip712Error,
+    authenticateEip712,
+    resetEip712,
+  } = useEip712Auth(signer, account, chainId);
 
-    setWalletError(null);
-    setIsConnecting(true);
-
-    try {
-      if (!window.ethereum.request) {
-        throw new Error("MetaMask provider is missing the request method");
-      }
-
-      const accountsResponse = await window.ethereum.request({
-        method: "eth_requestAccounts",
-      });
-      const accounts = Array.isArray(accountsResponse)
-        ? (accountsResponse as string[])
-        : [];
-
-      if (!accounts.length) {
-        throw new Error("No account returned by MetaMask");
-      }
-
-      const provider = new BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const network = await provider.getNetwork();
-      const checksummedAccount = getAddress(accounts[0]);
-
-      setProvider(provider);
-      setSigner(signer);
-      setAccount(checksummedAccount);
-      setChainId(Number(network.chainId));
-      setNetworkName(network.name);
-      setWalletError(null);
-      const value = await provider.getBalance(checksummedAccount);
-      setBalance(formatEther(value));
-    } catch (error) {
-      const err = error as { code?: number; message?: string };
-      const message =
-        err.code === 4001
-          ? "用户拒绝了连接请求"
-          : err.message || "Failed to connect wallet";
-      setWalletError(message);
-      setProvider(null);
-      setSigner(null);
-      setAccount(null);
-      setChainId(null);
-      setNetworkName("");
-    } finally {
-      setIsConnecting(false);
-    }
-  }, []);
-
-  const disconnectWallet = useCallback(() => {
-    setProvider(null);
-    setSigner(null);
-    setAccount(null);
-    setChainId(null);
-    setNetworkName("");
-    setBalance("");
-    setSignature("");
-    setWalletError(null);
-  }, []);
+  useEffect(() => {
+    resetSiwe();
+    resetEip191();
+    resetEip712();
+    resetErc20();
+  }, [account, resetSiwe, resetEip191, resetEip712, resetErc20]);
 
   const signMessage = useCallback(async () => {
     if (!signer) {
@@ -174,242 +101,24 @@ function App() {
       return;
     }
 
-    setIsSigning(true);
+    setIsSigningMessage(true);
     setWalletError(null);
 
     try {
       const signed = await signer.signMessage(messageToSign);
-      setSignature(signed);
+      setPersonalSignature(signed);
     } catch (error) {
       setWalletError((error as Error).message);
     } finally {
-      setIsSigning(false);
+      setIsSigningMessage(false);
     }
-  }, [signer, messageToSign]);
-
-  const loadErc20Details = useCallback(async () => {
-    if (!provider) {
-      setContractError("Connect MetaMask first");
-      return;
-    }
-
-    if (!isAddress(erc20Address)) {
-      setContractError("Enter a valid ERC-20 contract address");
-      return;
-    }
-
-    setContractError(null);
-    setErc20Loading(true);
-
-    try {
-      const contract = new Contract(erc20Address, ERC20_ABI, provider);
-      const [name, symbol, decimalsValue] = await Promise.all([
-        contract.name(),
-        contract.symbol(),
-        contract.decimals(),
-      ]);
-      const decimals = Number(decimalsValue);
-      let tokenBalance: bigint | null = null;
-
-      if (account) {
-        tokenBalance = await contract.balanceOf(account);
-      }
-
-      setErc20Info({
-        name,
-        symbol,
-        decimals,
-        balance:
-          tokenBalance !== null
-            ? formatUnits(tokenBalance, decimals)
-            : undefined,
-      });
-    } catch (error) {
-      setContractError((error as Error).message);
-      setErc20Info(null);
-    } finally {
-      setErc20Loading(false);
-    }
-  }, [provider, erc20Address, account]);
-
-  const transferToken = useCallback(async () => {
-    if (!signer || !provider) {
-      setTxError("Connect MetaMask before sending transactions");
-      return;
-    }
-    if (!erc20Info) {
-      setTxError("Load the token metadata first");
-      return;
-    }
-    if (!isAddress(transferTo)) {
-      setTxError("Recipient must be a valid address");
-      return;
-    }
-    if (!transferAmount || Number(transferAmount) <= 0) {
-      setTxError("Enter an amount greater than 0");
-      return;
-    }
-    setTxError(null);
-    setTxStatus("pending");
-    try {
-      const contract = new Contract(erc20Address, ERC20_ABI, signer);
-      const tx = await contract.transfer(
-        transferTo,
-        parseUnits(transferAmount, erc20Info.decimals)
-      );
-
-      setTxHash(tx.hash);
-      await tx.wait();
-
-      setTxStatus("confirmed");
-
-      await refreshBalance();
-      await loadErc20Details();
-    } catch (error) {
-      setTxStatus("idle");
-      setTxError((error as Error).message);
-    }
-  }, [
-    signer,
-    provider,
-    erc20Info,
-    transferTo,
-    transferAmount,
-    erc20Address,
-    refreshBalance,
-    loadErc20Details,
-  ]);
-
-  const signInWithEthereum = useCallback(async () => {
-    if (!signer || !account) {
-      setSiweError("Connect MetaMask before starting SIWE");
-      return;
-    }
-
-    setIsAuthenticating(true);
-    setSiweError(null);
-
-    try {
-      const nonceResponse = await fetch(`${BACKEND_URL}/auth/nonce`, {
-        credentials: "include",
-      });
-
-      if (!nonceResponse.ok) {
-        throw new Error("Server failed to issue a nonce");
-      }
-
-      const noncePayload = await nonceResponse.json();
-      const nonce = noncePayload?.nonce;
-
-      if (!nonce) {
-        throw new Error("Nonce missing from response");
-      }
-
-      const siweMessage = new SiweMessage({
-        domain: window.location.host,
-        address: account,
-        statement: "Sign in with Ethereum to continue.",
-        uri: window.location.origin,
-        version: "1",
-        chainId: chainId ?? 1,
-        nonce,
-      });
-      const preparedMessage = siweMessage.prepareMessage();
-      const signatureValue = await signer.signMessage(preparedMessage);
-
-      const verifyResponse = await fetch(`${BACKEND_URL}/auth/verify`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          message: preparedMessage,
-          signature: signatureValue,
-        }),
-      });
-
-      if (!verifyResponse.ok) {
-        const payload = await verifyResponse.json().catch(() => null);
-        throw new Error(payload?.message ?? "Signature verification failed");
-      }
-
-      const session = await verifyResponse.json();
-      setSiweSession({
-        address: session.address,
-        issuedAt: session.issuedAt,
-        chainId: session.chainId,
-      });
-      setSiweStatus("authenticated");
-    } catch (error) {
-      setSiweError((error as Error).message);
-      setSiweSession(null);
-      setSiweStatus("idle");
-    } finally {
-      setIsAuthenticating(false);
-    }
-  }, [signer, account, chainId]);
-
-  const logoutSiwe = useCallback(() => {
-    setSiweSession(null);
-    setSiweStatus("idle");
-    setSiweError(null);
-  }, []);
-
-  useEffect(() => {
-    const ethereum = window.ethereum;
-    if (!ethereum || !provider) return;
-
-    const handleAccountsChanged = (...args: unknown[]) => {
-      const nextAccounts = Array.isArray(args[0]) ? (args[0] as string[]) : [];
-
-      if (!nextAccounts.length) {
-        disconnectWallet();
-        return;
-      }
-
-      const normalizedAccount = getAddress(nextAccounts[0]);
-
-      setAccount(normalizedAccount);
-      setSiweSession(null);
-      setSiweStatus("idle");
-      setSiweError(null);
-
-      provider
-        .getSigner()
-        .then(setSigner)
-        .catch((error) => setWalletError((error as Error).message));
-      provider
-        .getBalance(normalizedAccount)
-        .then((value) => setBalance(formatEther(value)))
-        .catch((error) => setWalletError((error as Error).message));
-    };
-
-    const handleChainChanged = (..._args: unknown[]) => {
-      provider
-        .getNetwork()
-        .then((network) => {
-          setChainId(Number(network.chainId));
-          setNetworkName(network.name);
-          return refreshBalance();
-        })
-        .catch((error) => setWalletError((error as Error).message));
-    };
-
-    ethereum.on?.("accountsChanged", handleAccountsChanged);
-    ethereum.on?.("chainChanged", handleChainChanged);
-
-    return () => {
-      ethereum.removeListener?.("accountsChanged", handleAccountsChanged);
-      ethereum.removeListener?.("chainChanged", handleChainChanged);
-    };
-  }, [provider, disconnectWallet, refreshBalance]);
+  }, [signer, messageToSign, setWalletError]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto flex max-w-5xl flex-col gap-8 px-4 py-10">
         <header className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur">
-          <h1 className="text-3xl font-semibold text-white">
+          <h1 className="text-3xl font-semibold text-white text-left">
             MetaMask bridge with contract utilities
           </h1>
 
@@ -443,7 +152,7 @@ function App() {
           )}
         </header>
 
-        <section className="grid gap-6 md:grid-cols-3">
+        <section className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
           <article className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 shadow-sm shadow-slate-900">
             <h2 className="text-lg font-semibold text-white">
               Wallet snapshot
@@ -490,14 +199,14 @@ function App() {
             />
             <button
               onClick={signMessage}
-              disabled={!account || isSigning}
+              disabled={!account || isSigningMessage}
               className="mt-4 w-full rounded-lg bg-indigo-500 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isSigning ? "Signing..." : "Sign with MetaMask"}
+              {isSigningMessage ? "Signing..." : "Sign with MetaMask"}
             </button>
-            {signature && (
+            {personalSignature && (
               <div className="mt-4 rounded-lg border border-indigo-400/30 bg-indigo-500/10 p-3 text-xs font-mono text-indigo-200 break-all">
-                {signature}
+                {personalSignature}
               </div>
             )}
           </article>
@@ -544,6 +253,144 @@ function App() {
               </p>
             )}
           </article>
+
+          <article className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 shadow-sm shadow-slate-900">
+            <h2 className="text-lg font-semibold text-white">
+              EIP-191 personal_sign
+            </h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Fetches a nonce, creates a plain-text challenge, signs it via
+              <code className="mx-1 rounded bg-slate-800 px-1 text-xs text-white">
+                personal_sign
+              </code>
+              , and asks NestJS to verify the signature.
+            </p>
+            <button
+              onClick={authenticateEip191}
+              disabled={!account || isSigningEip191}
+              className="mt-6 w-full rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSigningEip191 ? "Signing..." : "Authenticate via EIP-191"}
+            </button>
+            <button
+              onClick={resetEip191}
+              className="mt-2 w-full rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:border-slate-500"
+            >
+              Clear EIP-191 state
+            </button>
+
+            {eip191Nonce && (
+              <p className="mt-3 text-xs text-slate-400">
+                Nonce:{" "}
+                <span className="font-mono text-slate-100">{eip191Nonce}</span>
+              </p>
+            )}
+
+            {eip191Message && (
+              <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950/50 p-3 text-xs text-slate-200">
+                <p className="text-[10px] uppercase text-slate-400">Message</p>
+                <pre className="mt-1 whitespace-pre-wrap break-words text-slate-100">
+                  {eip191Message}
+                </pre>
+              </div>
+            )}
+
+            {eip191Signature && (
+              <div className="mt-3 rounded-xl border border-slate-700 bg-slate-950/50 p-3 text-xs font-mono text-slate-200 break-all">
+                <p className="text-[10px] uppercase text-slate-400">
+                  Signature
+                </p>
+                {eip191Signature}
+              </div>
+            )}
+
+            {eip191Result && (
+              <div className="mt-3 space-y-1 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs font-mono text-emerald-200">
+                <p className="text-[10px] uppercase text-emerald-400">
+                  Server verification
+                </p>
+                <p>Address: {eip191Result.address}</p>
+                <p>Nonce: {eip191Result.nonce}</p>
+                <p>Status: {eip191Result.verified ? "verified" : "unknown"}</p>
+              </div>
+            )}
+
+            {eip191Error && (
+              <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+                {eip191Error}
+              </p>
+            )}
+          </article>
+
+          <article className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 shadow-sm shadow-slate-900">
+            <h2 className="text-lg font-semibold text-white">
+              EIP-712 typed data
+            </h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Gets a typed-data challenge from NestJS and signs it with
+              <code className="mx-1 rounded bg-slate-800 px-1 text-xs text-white">
+                signTypedData
+              </code>
+              .
+            </p>
+            <button
+              onClick={authenticateEip712}
+              disabled={!account || isSigningEip712}
+              className="mt-6 w-full rounded-lg bg-sky-500 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSigningEip712 ? "Signing..." : "Authenticate via EIP-712"}
+            </button>
+            <button
+              onClick={resetEip712}
+              className="mt-2 w-full rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:border-slate-500"
+            >
+              Clear EIP-712 state
+            </button>
+
+            {eip712Challenge && (
+              <div className="mt-4 space-y-1 rounded-xl border border-slate-700 bg-slate-950/50 p-3 text-xs text-slate-200">
+                <p className="text-[10px] uppercase text-slate-400">Domain</p>
+                <p>
+                  {eip712Challenge.domain.name} v
+                  {eip712Challenge.domain.version}
+                  &nbsp;· chain {eip712Challenge.domain.chainId}
+                </p>
+                <p className="text-[10px] uppercase text-slate-400">Message</p>
+                <pre className="whitespace-pre-wrap break-words">
+                  {JSON.stringify(eip712Challenge.message, null, 2)}
+                </pre>
+              </div>
+            )}
+
+            {eip712Signature && (
+              <div className="mt-3 rounded-xl border border-slate-700 bg-slate-950/50 p-3 text-xs font-mono text-slate-200 break-all">
+                <p className="text-[10px] uppercase text-slate-400">
+                  Signature
+                </p>
+                {eip712Signature}
+              </div>
+            )}
+
+            {eip712Result && (
+              <div className="mt-3 space-y-1 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs font-mono text-emerald-200">
+                <p className="text-[10px] uppercase text-emerald-400">
+                  Server verification
+                </p>
+                <p>Address: {eip712Result.address}</p>
+                <p>Nonce: {eip712Result.nonce}</p>
+                {eip712Result.issuedAt && (
+                  <p>Issued: {eip712Result.issuedAt}</p>
+                )}
+                <p>Status: {eip712Result.verified ? "verified" : "unknown"}</p>
+              </div>
+            )}
+
+            {eip712Error && (
+              <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+                {eip712Error}
+              </p>
+            )}
+          </article>
         </section>
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-sm shadow-slate-900">
@@ -559,9 +406,9 @@ function App() {
             </div>
             <button
               className="text-xs font-semibold uppercase tracking-wide text-slate-400 underline-offset-2 hover:text-white hover:underline"
-              onClick={() => setErc20Address(ENA_DAI)}
+              onClick={() => setErc20Address(DEFAULT_ERC20_ADDRESS)}
             >
-              Use ENA sample
+              Use Sepolia sample
             </button>
           </div>
 
@@ -574,7 +421,7 @@ function App() {
             placeholder="0x..."
             className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 font-mono text-sm text-slate-100 outline-none focus:border-emerald-400"
           />
-          <div className="mt-3 flex gap-3">
+          <div className="mt-3 flex flex-wrap gap-3">
             <button
               onClick={loadErc20Details}
               disabled={erc20Loading}
@@ -583,7 +430,15 @@ function App() {
               {erc20Loading ? "Loading..." : "Read metadata"}
             </button>
             <button
-              onClick={() => setErc20Info(null)}
+              onClick={identifyErc20Contract}
+              className="flex-1 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:border-slate-500"
+            >
+              {erc20CheckStatus === "checking"
+                ? "Identifying..."
+                : "Identify ERC-20"}
+            </button>
+            <button
+              onClick={clearErc20Info}
               className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:border-slate-500"
             >
               Reset
@@ -593,6 +448,21 @@ function App() {
           {contractError && (
             <p className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
               {contractError}
+            </p>
+          )}
+          {erc20CheckStatus !== "idle" && (
+            <p
+              className={`mt-3 rounded-lg border px-3 py-2 text-sm ${
+                erc20CheckStatus === "erc20"
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                  : erc20CheckStatus === "checking"
+                  ? "border-slate-600 bg-slate-800/50 text-slate-300"
+                  : "border-rose-500/40 bg-rose-500/10 text-rose-200"
+              }`}
+            >
+              {erc20CheckStatus === "checking"
+                ? "Identifying contract..."
+                : erc20CheckMessage}
             </p>
           )}
 
@@ -669,6 +539,24 @@ function App() {
             </div>
           )}
         </section>
+
+        <footer className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-400">
+          <p>
+            Tips: handle provider availability, request permissions with
+            <code className="mx-1 rounded bg-slate-800 px-1 py-0.5 text-xs text-white">
+              eth_requestAccounts
+            </code>
+            , and react to MetaMask events such as
+            <code className="mx-1 rounded bg-slate-800 px-1 py-0.5 text-xs text-white">
+              accountsChanged
+            </code>
+            and
+            <code className="mx-1 rounded bg-slate-800 px-1 py-0.5 text-xs text-white">
+              chainChanged
+            </code>
+            to keep the UI in sync.
+          </p>
+        </footer>
       </div>
     </div>
   );

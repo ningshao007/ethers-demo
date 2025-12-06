@@ -14,6 +14,7 @@ import { useUsdtTransfers } from "./hooks/useUsdtTransfers";
 import { useTxSimulation } from "./hooks/useTxSimulation";
 import { useMulticall } from "./hooks/useMulticall";
 import { useChainSnapshots } from "./hooks/useChainSnapshots";
+import { useNonceManager } from "./hooks/useNonceManager";
 import { getAddress, isAddress } from "ethers";
 
 function App() {
@@ -30,6 +31,20 @@ function App() {
   const [blockNumberInput, setBlockNumberInput] = useState("");
   const [blockInputError, setBlockInputError] = useState<string | null>(null);
   const [txHashInput, setTxHashInput] = useState("");
+  const [pendingTxHashInput, setPendingTxHashInput] = useState("");
+  const [feeOverrides, setFeeOverrides] = useState<
+    Record<
+      string,
+      {
+        maxFee?: string;
+        maxPriority?: string;
+        gasPrice?: string;
+      }
+    >
+  >({});
+  const [resendStatus, setResendStatus] = useState<
+    Record<string, { loading: boolean; error: string | null; success: string | null }>
+  >({});
 
   const {
     provider,
@@ -184,6 +199,20 @@ function App() {
     resetSnapshots: resetChainSnapshots,
   } = useChainSnapshots(provider);
 
+  const {
+    latestNonce,
+    pendingNonce,
+    pendingTxs: accountPendingTxs,
+    nonceError,
+    trackingError,
+    isRefreshingNonce,
+    refreshNonce,
+    importPendingTx,
+    removePendingTx,
+    clearTracking: clearPendingTracking,
+    resendTransaction,
+  } = useNonceManager({ provider, account, signer });
+
   useEffect(() => {
     resetSiwe();
     resetEip191();
@@ -275,6 +304,88 @@ function App() {
   const handleRefreshFeeData = useCallback(() => {
     fetchFeeData();
   }, [fetchFeeData]);
+
+  useEffect(() => {
+    setFeeOverrides((previous) => {
+      const next = { ...previous };
+      accountPendingTxs.forEach((tx) => {
+        if (!next[tx.hash]) {
+          if (tx.maxFeePerGasGwei) {
+            const base = Number(tx.maxFeePerGasGwei);
+            const priorityBase = Number(tx.maxPriorityFeePerGasGwei ?? tx.maxFeePerGasGwei ?? "0");
+            next[tx.hash] = {
+              maxFee: base ? (base * 1.1).toFixed(2) : "",
+              maxPriority: priorityBase
+                ? (priorityBase * 1.2).toFixed(2)
+                : "",
+            };
+          } else {
+            const gasPriceBase = Number(tx.gasPriceGwei ?? "0");
+            next[tx.hash] = {
+              gasPrice: gasPriceBase ? (gasPriceBase * 1.1).toFixed(2) : "",
+            };
+          }
+        }
+      });
+      Object.keys(next).forEach((hash) => {
+        if (!accountPendingTxs.find((tx) => tx.hash === hash)) {
+          delete next[hash];
+        }
+      });
+      return next;
+    });
+    setResendStatus((previous) => {
+      const next: typeof previous = {};
+      accountPendingTxs.forEach((tx) => {
+        next[tx.hash] = previous[tx.hash] ?? {
+          loading: false,
+          error: null,
+          success: null,
+        };
+      });
+      return next;
+    });
+  }, [accountPendingTxs]);
+
+  const handleImportPendingTx = useCallback(() => {
+    if (!pendingTxHashInput.trim()) return;
+    importPendingTx(pendingTxHashInput.trim());
+    setPendingTxHashInput("");
+  }, [pendingTxHashInput, importPendingTx]);
+
+  const handleResendTx = useCallback(
+    async (hash: string) => {
+      const target = accountPendingTxs.find((tx) => tx.hash === hash);
+      if (!target) return;
+      const overrides = feeOverrides[hash] ?? {};
+      setResendStatus((previous) => ({
+        ...previous,
+        [hash]: { loading: true, error: null, success: null },
+      }));
+      try {
+        await resendTransaction(target, {
+          maxFeePerGasGwei: overrides.maxFee,
+          maxPriorityFeePerGasGwei: overrides.maxPriority,
+          gasPriceGwei: overrides.gasPrice,
+        });
+        setResendStatus((previous) => ({
+          ...previous,
+          [hash]: { loading: false, error: null, success: "已广播新的交易" },
+        }));
+        refreshNonce();
+      } catch (error) {
+        setResendStatus((previous) => ({
+          ...previous,
+          [hash]: {
+            loading: false,
+            error: (error as Error).message,
+            success: null,
+          },
+        }));
+      }
+    },
+    [accountPendingTxs, feeOverrides, resendTransaction, refreshNonce]
+  );
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -1248,6 +1359,219 @@ function App() {
                 </dl>
               </div>
             )}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-sm shadow-slate-900">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Gas & nonce management
+              </h2>
+              <p className="text-sm text-slate-400">
+                展示当前账号的 nonce 队列与未确认交易，支持自定义 maxFeePerGas / maxPriorityFeePerGas
+                进行 replaceTx（或 legacy gasPrice）重发。
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-slate-300">
+              <div className="rounded-lg border border-slate-700 px-3 py-1">
+                Latest nonce: {latestNonce ?? "--"}
+              </div>
+              <div className="rounded-lg border border-slate-700 px-3 py-1">
+                Pending nonce: {pendingNonce ?? "--"}
+              </div>
+              <div className="rounded-lg border border-slate-700 px-3 py-1">
+                Queue length:{" "}
+                {latestNonce !== null && pendingNonce !== null
+                  ? Math.max(pendingNonce - latestNonce, 0)
+                  : "--"}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              onClick={refreshNonce}
+              disabled={!provider || !account || isRefreshingNonce}
+              className="rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-slate-900 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isRefreshingNonce ? "Refreshing..." : "Refresh nonce"}
+            </button>
+            <button
+              onClick={clearPendingTracking}
+              className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:border-slate-500"
+            >
+              Clear tracked txs
+            </button>
+            <div className="flex-1 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs text-slate-300">
+              Next nonce: {pendingNonce ?? latestNonce ?? "--"}
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-2 md:flex-row md:items-end">
+            <div className="flex-1">
+              <label className="text-xs uppercase tracking-wide text-slate-400">
+                Import tx hash（只支持当前钱包）
+              </label>
+              <input
+                value={pendingTxHashInput}
+                onChange={(event) => setPendingTxHashInput(event.target.value)}
+                placeholder="0x..."
+                className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 font-mono text-sm text-slate-100 outline-none focus:border-emerald-400"
+              />
+            </div>
+            <button
+              onClick={handleImportPendingTx}
+              disabled={!pendingTxHashInput}
+              className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Track tx
+            </button>
+          </div>
+
+          {nonceError && (
+            <p className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              {nonceError}
+            </p>
+          )}
+          {trackingError && (
+            <p className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              {trackingError}
+            </p>
+          )}
+
+          {!accountPendingTxs.length && (
+            <p className="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-4 text-sm text-slate-400">
+              暂无未确认交易，发送新交易或导入哈希即可开始管理。
+            </p>
+          )}
+
+          <div className="mt-5 space-y-4">
+            {accountPendingTxs.map((tx) => (
+              <div
+                key={tx.hash}
+                className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 text-sm"
+              >
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-400">
+                      Pending tx
+                    </p>
+                    <p className="font-mono text-xs text-slate-300 break-all">
+                      {tx.hash}
+                    </p>
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    Nonce #{tx.nonce} · {tx.valueEth} ETH{" "}
+                    {tx.to && (
+                      <>
+                        → <span className="font-mono">{tx.to}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                  <div>
+                    <dt className="text-slate-500">Current fees</dt>
+                    <dd className="text-white">
+                      {tx.maxFeePerGasGwei
+                        ? `${tx.maxFeePerGasGwei} gwei max / ${
+                            tx.maxPriorityFeePerGasGwei ?? "--"
+                          } priority`
+                        : tx.gasPriceGwei
+                        ? `${tx.gasPriceGwei} gwei`
+                        : "--"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Tx type</dt>
+                    <dd className="text-white">{tx.type ?? "--"}</dd>
+                  </div>
+                </dl>
+
+                {tx.maxFeePerGasGwei ? (
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <label className="text-xs uppercase tracking-wide text-slate-400">
+                      新 maxFeePerGas (gwei)
+                      <input
+                        value={feeOverrides[tx.hash]?.maxFee ?? ""}
+                        onChange={(event) =>
+                          setFeeOverrides((previous) => ({
+                            ...previous,
+                            [tx.hash]: {
+                              ...previous[tx.hash],
+                              maxFee: event.target.value,
+                            },
+                          }))
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
+                      />
+                    </label>
+                    <label className="text-xs uppercase tracking-wide text-slate-400">
+                      新 maxPriorityFeePerGas (gwei)
+                      <input
+                        value={feeOverrides[tx.hash]?.maxPriority ?? ""}
+                        onChange={(event) =>
+                          setFeeOverrides((previous) => ({
+                            ...previous,
+                            [tx.hash]: {
+                              ...previous[tx.hash],
+                              maxPriority: event.target.value,
+                            },
+                          }))
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <label className="mt-4 block text-xs uppercase tracking-wide text-slate-400">
+                    新 gasPrice (gwei)
+                    <input
+                      value={feeOverrides[tx.hash]?.gasPrice ?? ""}
+                      onChange={(event) =>
+                        setFeeOverrides((previous) => ({
+                          ...previous,
+                          [tx.hash]: {
+                            ...previous[tx.hash],
+                            gasPrice: event.target.value,
+                          },
+                        }))
+                      }
+                      className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
+                    />
+                  </label>
+                )}
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    onClick={() => handleResendTx(tx.hash)}
+                    disabled={!account || resendStatus[tx.hash]?.loading}
+                    className="rounded-lg bg-rose-500 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {resendStatus[tx.hash]?.loading ? "Broadcasting..." : "Resend"}
+                  </button>
+                  <button
+                    onClick={() => removePendingTx(tx.hash)}
+                    className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:border-slate-500"
+                  >
+                    Stop tracking
+                  </button>
+                </div>
+
+                {resendStatus[tx.hash]?.error && (
+                  <p className="mt-2 text-xs text-rose-300">
+                    {resendStatus[tx.hash]?.error}
+                  </p>
+                )}
+                {resendStatus[tx.hash]?.success && (
+                  <p className="mt-2 text-xs text-emerald-300">
+                    {resendStatus[tx.hash]?.success}
+                  </p>
+                )}
+              </div>
+            ))}
           </div>
         </section>
 

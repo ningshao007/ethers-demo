@@ -13,6 +13,7 @@ import { useMempool } from "./hooks/useMempool";
 import { useUsdtTransfers } from "./hooks/useUsdtTransfers";
 import { useTxSimulation } from "./hooks/useTxSimulation";
 import { useMulticall } from "./hooks/useMulticall";
+import { useChainSnapshots } from "./hooks/useChainSnapshots";
 import { getAddress, isAddress } from "ethers";
 
 function App() {
@@ -26,6 +27,9 @@ function App() {
   const [simulationTo, setSimulationTo] = useState("0xdAC17F958D2ee523a2206206994597C13D831ec7");
   const [simulationValue, setSimulationValue] = useState("0.01");
   const [simulationData, setSimulationData] = useState("");
+  const [blockNumberInput, setBlockNumberInput] = useState("");
+  const [blockInputError, setBlockInputError] = useState<string | null>(null);
+  const [txHashInput, setTxHashInput] = useState("");
 
   const {
     provider,
@@ -160,6 +164,26 @@ function App() {
     defaultTokens: DEFAULT_MULTICALL_TOKENS,
   });
 
+  const {
+    blockSnapshot,
+    transactionSnapshot,
+    receiptSnapshot,
+    feeDataSnapshot,
+    blockError,
+    transactionError,
+    receiptError,
+    feeDataError,
+    isLoadingBlock,
+    isLoadingTransaction,
+    isLoadingReceipt,
+    isLoadingFeeData,
+    fetchBlock,
+    fetchTransaction,
+    fetchReceipt,
+    fetchFeeData,
+    resetSnapshots: resetChainSnapshots,
+  } = useChainSnapshots(provider);
+
   useEffect(() => {
     resetSiwe();
     resetEip191();
@@ -173,6 +197,12 @@ function App() {
       setWatchCurrentAccountOnly(true);
     }
   }, [account]);
+
+  useEffect(() => {
+    if (!provider) {
+      resetChainSnapshots();
+    }
+  }, [provider, resetChainSnapshots]);
 
   const signMessage = useCallback(async () => {
     if (!signer) {
@@ -213,6 +243,38 @@ function App() {
       data: simulationData,
     });
   }, [simulateTransaction, simulationTo, simulationValue, simulationData]);
+
+  const handleFetchBlock = useCallback(() => {
+    if (!blockNumberInput.trim()) {
+      setBlockInputError(null);
+      fetchBlock("latest");
+      return;
+    }
+    const parsed = Number(blockNumberInput);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      setBlockInputError("请输入非负整数的区块高度，或留空查询最新区块");
+      return;
+    }
+    setBlockInputError(null);
+    fetchBlock(parsed);
+  }, [blockNumberInput, fetchBlock]);
+
+  const handleFetchLatestBlock = useCallback(() => {
+    setBlockInputError(null);
+    fetchBlock("latest");
+  }, [fetchBlock]);
+
+  const handleFetchTransaction = useCallback(() => {
+    fetchTransaction(txHashInput.trim());
+  }, [fetchTransaction, txHashInput]);
+
+  const handleFetchReceipt = useCallback(() => {
+    fetchReceipt(txHashInput.trim());
+  }, [fetchReceipt, txHashInput]);
+
+  const handleRefreshFeeData = useCallback(() => {
+    fetchFeeData();
+  }, [fetchFeeData]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -889,6 +951,304 @@ function App() {
               输入多个合约地址后点击“Run multicall”即可批量获取它们的基础信息。
             </p>
           )}
+        </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-sm shadow-slate-900">
+          <div className="flex flex-col gap-2">
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                On-chain state snapshots
+              </h2>
+              <p className="text-sm text-slate-400">
+                直接调用 provider.getBlock / getTransaction / getTransactionReceipt / getFeeData，
+                查看实时区块、交易与 gas 费率信息。
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <label className="text-xs uppercase tracking-wide text-slate-400">
+              Block number（留空=latest）
+              <input
+                value={blockNumberInput}
+                onChange={(event) => {
+                  setBlockNumberInput(event.target.value);
+                  setBlockInputError(null);
+                }}
+                placeholder="例如 19000000"
+                className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
+              />
+            </label>
+            <label className="text-xs uppercase tracking-wide text-slate-400">
+              Transaction hash
+              <input
+                value={txHashInput}
+                onChange={(event) => setTxHashInput(event.target.value)}
+                placeholder="0x..."
+                className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 font-mono text-sm text-slate-100 outline-none focus:border-emerald-400"
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              onClick={handleFetchBlock}
+              disabled={!provider || isLoadingBlock}
+              className="rounded-lg bg-indigo-500 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoadingBlock ? "Fetching block..." : "Fetch block"}
+            </button>
+            <button
+              onClick={handleFetchLatestBlock}
+              disabled={!provider}
+              className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:border-slate-500"
+            >
+              Latest block
+            </button>
+            <button
+              onClick={handleFetchTransaction}
+              disabled={!provider || isLoadingTransaction}
+              className="rounded-lg bg-rose-500 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoadingTransaction ? "Fetching tx..." : "Get transaction"}
+            </button>
+            <button
+              onClick={handleFetchReceipt}
+              disabled={!provider || isLoadingReceipt}
+              className="rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoadingReceipt ? "Fetching receipt..." : "Get receipt"}
+            </button>
+            <button
+              onClick={handleRefreshFeeData}
+              disabled={!provider || isLoadingFeeData}
+              className="rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-slate-900 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoadingFeeData ? "Refreshing gas data..." : "Refresh gas data"}
+            </button>
+          </div>
+
+          {blockInputError && (
+            <p className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+              {blockInputError}
+            </p>
+          )}
+
+          {blockError && (
+            <p className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              {blockError}
+            </p>
+          )}
+          {transactionError && (
+            <p className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              {transactionError}
+            </p>
+          )}
+          {receiptError && (
+            <p className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              {receiptError}
+            </p>
+          )}
+          {feeDataError && (
+            <p className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              {feeDataError}
+            </p>
+          )}
+
+          <div className="mt-5 space-y-4">
+            {blockSnapshot && (
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 text-sm">
+                <p className="text-xs uppercase tracking-wide text-slate-400">
+                  Block snapshot
+                </p>
+                <p className="mt-1 text-lg font-semibold text-white">
+                  #{blockSnapshot.number}
+                </p>
+                <p className="font-mono text-xs text-slate-400 break-all">
+                  {blockSnapshot.hash}
+                </p>
+                <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <dt className="text-slate-500">Timestamp</dt>
+                    <dd className="text-white">
+                      {new Date(blockSnapshot.timestamp * 1000).toLocaleString()}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Miner</dt>
+                    <dd className="font-mono text-slate-100">
+                      {blockSnapshot.miner ?? "--"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Gas used / limit</dt>
+                    <dd className="text-white">
+                      {blockSnapshot.gasUsed} / {blockSnapshot.gasLimit}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Base fee</dt>
+                    <dd className="text-white">
+                      {blockSnapshot.baseFeePerGasGwei
+                        ? `${blockSnapshot.baseFeePerGasGwei} gwei`
+                        : "--"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Tx count</dt>
+                    <dd className="text-white">{blockSnapshot.transactionCount}</dd>
+                  </div>
+                </dl>
+              </div>
+            )}
+
+            {transactionSnapshot && (
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 text-sm">
+                <p className="text-xs uppercase tracking-wide text-slate-400">
+                  Transaction snapshot
+                </p>
+                <p className="mt-1 font-mono text-xs text-slate-300 break-all">
+                  {transactionSnapshot.hash}
+                </p>
+                <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <dt className="text-slate-500">From / To</dt>
+                    <dd className="font-mono text-xs text-slate-100 break-all">
+                      {transactionSnapshot.from}
+                      <br />→ {transactionSnapshot.to ?? "--"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Value</dt>
+                    <dd className="text-white">
+                      {transactionSnapshot.valueEth} ETH
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Gas price</dt>
+                    <dd className="text-white">
+                      {transactionSnapshot.gasPriceGwei
+                        ? `${transactionSnapshot.gasPriceGwei} gwei`
+                        : "--"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Max fee / priority</dt>
+                    <dd className="text-white">
+                      {transactionSnapshot.maxFeePerGasGwei ?? "--"} /{" "}
+                      {transactionSnapshot.maxPriorityFeePerGasGwei ?? "--"} gwei
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Block / confirmations</dt>
+                    <dd className="text-white">
+                      {transactionSnapshot.blockNumber ?? "--"} ·{" "}
+                      {transactionSnapshot.confirmations ?? "--"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Type / nonce</dt>
+                    <dd className="text-white">
+                      {transactionSnapshot.type ?? "--"} / {transactionSnapshot.nonce}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            )}
+
+            {receiptSnapshot && (
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 text-sm">
+                <p className="text-xs uppercase tracking-wide text-slate-400">
+                  Receipt snapshot
+                </p>
+                <p className="mt-1 font-mono text-xs text-slate-300 break-all">
+                  {receiptSnapshot.transactionHash}
+                </p>
+                <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <dt className="text-slate-500">Status</dt>
+                    <dd
+                      className={
+                        receiptSnapshot.status === 1
+                          ? "text-emerald-300 font-semibold"
+                          : "text-rose-300 font-semibold"
+                      }
+                    >
+                      {receiptSnapshot.status === 1 ? "Success" : "Failed"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Block / confirmations</dt>
+                    <dd className="text-white">
+                      {receiptSnapshot.blockNumber} · {receiptSnapshot.confirmations}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Gas used</dt>
+                    <dd className="text-white">{receiptSnapshot.gasUsed}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Cumulative gas</dt>
+                    <dd className="text-white">
+                      {receiptSnapshot.cumulativeGasUsed}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Effective gas price</dt>
+                    <dd className="text-white">
+                      {receiptSnapshot.effectiveGasPriceGwei
+                        ? `${receiptSnapshot.effectiveGasPriceGwei} gwei`
+                        : "--"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Logs count</dt>
+                    <dd className="text-white">{receiptSnapshot.logsCount}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Contract address</dt>
+                    <dd className="font-mono text-xs text-slate-100 break-all">
+                      {receiptSnapshot.contractAddress ?? "--"}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            )}
+
+            {feeDataSnapshot && (
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 text-sm">
+                <p className="text-xs uppercase tracking-wide text-slate-400">
+                  Fee data
+                </p>
+                <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <dt className="text-slate-500">Gas price</dt>
+                    <dd className="text-white">
+                      {feeDataSnapshot.gasPriceGwei
+                        ? `${feeDataSnapshot.gasPriceGwei} gwei`
+                        : "--"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Max fee</dt>
+                    <dd className="text-white">
+                      {feeDataSnapshot.maxFeePerGasGwei
+                        ? `${feeDataSnapshot.maxFeePerGasGwei} gwei`
+                        : "--"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Max priority</dt>
+                    <dd className="text-white">
+                      {feeDataSnapshot.maxPriorityFeePerGasGwei
+                        ? `${feeDataSnapshot.maxPriorityFeePerGasGwei} gwei`
+                        : "--"}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            )}
+          </div>
         </section>
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-sm shadow-slate-900">

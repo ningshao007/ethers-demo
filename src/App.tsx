@@ -6,11 +6,13 @@ import { useErc20 } from "./hooks/useErc20";
 import { useSiweAuth } from "./hooks/useSiwe";
 import { useEip191Auth } from "./hooks/useEip191";
 import { useEip712Auth } from "./hooks/useEip712";
+import { useMempool } from "./hooks/useMempool";
 
 function App() {
   const [messageToSign, setMessageToSign] = useState("Hello from ethers.js");
   const [personalSignature, setPersonalSignature] = useState("");
   const [isSigningMessage, setIsSigningMessage] = useState(false);
+  const [watchCurrentAccountOnly, setWatchCurrentAccountOnly] = useState(true);
 
   const {
     provider,
@@ -88,12 +90,27 @@ function App() {
     resetEip712,
   } = useEip712Auth(signer, account, chainId);
 
+  const {
+    pendingTxs,
+    isMonitoring: isMonitoringMempool,
+    error: mempoolError,
+    startMonitoring,
+    stopMonitoring,
+    clearPendingTxs,
+  } = useMempool(provider, watchCurrentAccountOnly ? account : null);
+
   useEffect(() => {
     resetSiwe();
     resetEip191();
     resetEip712();
     resetErc20();
   }, [account, resetSiwe, resetEip191, resetEip712, resetErc20]);
+
+  useEffect(() => {
+    if (!account) {
+      setWatchCurrentAccountOnly(true);
+    }
+  }, [account]);
 
   const signMessage = useCallback(async () => {
     if (!signer) {
@@ -537,6 +554,103 @@ function App() {
                 )}
               </div>
             </div>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-sm shadow-slate-900">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Mempool transaction monitor
+              </h2>
+              <p className="text-sm text-slate-400">
+                Subscribe to the provider's pending stream to inspect freshly
+                submitted transactions.
+              </p>
+            </div>
+            <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border border-slate-600 bg-slate-900 text-emerald-400 focus:ring-emerald-400"
+                checked={watchCurrentAccountOnly}
+                onChange={(event) => setWatchCurrentAccountOnly(event.target.checked)}
+                disabled={!account}
+              />
+              只跟踪当前钱包
+            </label>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              onClick={isMonitoringMempool ? stopMonitoring : startMonitoring}
+              disabled={!provider}
+              className="flex-1 rounded-lg bg-fuchsia-500 px-3 py-2 text-sm font-semibold text-white transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isMonitoringMempool ? "Stop monitoring" : "Start monitoring"}
+            </button>
+            <button
+              onClick={clearPendingTxs}
+              className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:border-slate-500"
+            >
+              Clear list
+            </button>
+          </div>
+
+          {mempoolError && (
+            <p className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              {mempoolError}
+            </p>
+          )}
+
+          {!pendingTxs.length && (
+            <p className="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-4 text-sm text-slate-400">
+              {isMonitoringMempool
+                ? "Listening for pending transactions..."
+                : "Start monitoring to capture live mempool data."}
+            </p>
+          )}
+
+          {pendingTxs.length > 0 && (
+            <ul className="mt-5 space-y-3">
+              {pendingTxs.map((tx) => (
+                <li
+                  key={tx.hash}
+                  className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
+                >
+                  <p className="font-mono text-xs text-slate-400">{tx.hash}</p>
+                  <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+                    <div>
+                      <dt className="text-slate-500">From</dt>
+                      <dd className="font-mono text-slate-100">{tx.from ?? "--"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">To</dt>
+                      <dd className="font-mono text-slate-100">{tx.to ?? "--"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">Value</dt>
+                      <dd className="font-semibold text-emerald-300">
+                        {tx.valueEth} ETH
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">Gas price</dt>
+                      <dd className="text-slate-200">
+                        {tx.gasPriceGwei
+                          ? `${tx.gasPriceGwei} gwei`
+                          : tx.maxFeePerGasGwei
+                          ? `${tx.maxFeePerGasGwei} gwei (max)`
+                          : "--"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">Nonce</dt>
+                      <dd className="text-slate-200">{tx.nonce ?? "--"}</dd>
+                    </div>
+                  </dl>
+                </li>
+              ))}
+            </ul>
           )}
         </section>
 

@@ -1,6 +1,9 @@
 import "./App.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DEFAULT_ERC20_ADDRESS } from "./config/appConfig";
+import {
+  DEFAULT_ERC20_ADDRESS,
+  DEFAULT_MULTICALL_TOKENS,
+} from "./config/appConfig";
 import { useWallet } from "./hooks/useWallet";
 import { useErc20 } from "./hooks/useErc20";
 import { useSiweAuth } from "./hooks/useSiwe";
@@ -9,6 +12,7 @@ import { useEip712Auth } from "./hooks/useEip712";
 import { useMempool } from "./hooks/useMempool";
 import { useUsdtTransfers } from "./hooks/useUsdtTransfers";
 import { useTxSimulation } from "./hooks/useTxSimulation";
+import { useMulticall } from "./hooks/useMulticall";
 import { getAddress, isAddress } from "ethers";
 
 function App() {
@@ -139,6 +143,22 @@ function App() {
     error: simulationError,
     resetSimulation,
   } = useTxSimulation({ provider, account });
+
+  const {
+    tokens: multicallTokens,
+    results: multicallResults,
+    isQuerying: isQueryingMulticall,
+    error: multicallError,
+    updateTokenAddress: updateMulticallToken,
+    addTokenRow: addMulticallToken,
+    removeTokenRow: removeMulticallToken,
+    resetTokens: resetMulticallTokens,
+    runMulticall,
+  } = useMulticall({
+    provider,
+    account,
+    defaultTokens: DEFAULT_MULTICALL_TOKENS,
+  });
 
   useEffect(() => {
     resetSiwe();
@@ -740,6 +760,134 @@ function App() {
                 )}
               </div>
             </div>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-sm shadow-slate-900">
+          <div className="flex flex-col gap-2">
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                ERC-20 多合约批量读取（Multicall3）
+              </h2>
+              <p className="text-sm text-slate-400">
+                一次 RPC 请求批量获取多个合约的 name / symbol / decimals，并在连接钱包后同步读取
+                balanceOf。
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {multicallTokens.map((token, index) => (
+              <div
+                key={token.id}
+                className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/40 p-3 sm:flex-row sm:items-center"
+              >
+                <div className="flex-1">
+                  <label className="text-xs uppercase tracking-wide text-slate-400">
+                    合约地址 #{index + 1}
+                  </label>
+                  <input
+                    value={token.address}
+                    onChange={(event) =>
+                      updateMulticallToken(token.id, event.target.value)
+                    }
+                    placeholder="0x..."
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 font-mono text-sm text-slate-100 outline-none focus:border-emerald-400"
+                  />
+                </div>
+                <button
+                  onClick={() => removeMulticallToken(token.id)}
+                  className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:border-slate-500"
+                >
+                  移除
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-3">
+            <button
+              onClick={addMulticallToken}
+              className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-white hover:border-slate-500"
+            >
+              + 添加合约
+            </button>
+            <button
+              onClick={runMulticall}
+              disabled={isQueryingMulticall || !provider}
+              className="flex-1 rounded-lg bg-lime-500 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-lime-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isQueryingMulticall ? "Running multicall..." : "Run multicall"}
+            </button>
+            <button
+              onClick={resetMulticallTokens}
+              className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:border-slate-500"
+            >
+              Reset list
+            </button>
+          </div>
+
+          {!account && (
+            <p className="mt-3 text-xs text-slate-400">
+              未连接钱包时会跳过 balanceOf 调用，只返回 metadata。
+            </p>
+          )}
+
+          {multicallError && (
+            <p className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              {multicallError}
+            </p>
+          )}
+
+          {multicallResults.length > 0 && (
+            <div className="mt-5 overflow-x-auto">
+              <table className="w-full min-w-[600px] text-left text-sm">
+                <thead>
+                  <tr className="text-xs uppercase tracking-wide text-slate-400">
+                    <th className="px-3 py-2">Address</th>
+                    <th className="px-3 py-2">Name</th>
+                    <th className="px-3 py-2">Symbol</th>
+                    <th className="px-3 py-2">Decimals</th>
+                    <th className="px-3 py-2">Balance</th>
+                    <th className="px-3 py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {multicallResults.map((item) => (
+                    <tr key={item.id} className="border-t border-slate-800">
+                      <td className="px-3 py-2 font-mono text-xs text-slate-300 break-all">
+                        {item.address || "--"}
+                      </td>
+                      <td className="px-3 py-2 text-white">
+                        {item.name ?? "--"}
+                      </td>
+                      <td className="px-3 py-2 text-white">
+                        {item.symbol ?? "--"}
+                      </td>
+                      <td className="px-3 py-2 text-white">
+                        {item.decimals ?? "--"}
+                      </td>
+                      <td className="px-3 py-2 text-emerald-200">
+                        {item.balance ?? (account ? "--" : "Connect wallet")}
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        {item.error ? (
+                          <span className="text-rose-300">{item.error}</span>
+                        ) : (
+                          <span className="text-emerald-300">OK</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!multicallResults.length && !multicallError && (
+            <p className="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-4 text-sm text-slate-400">
+              输入多个合约地址后点击“Run multicall”即可批量获取它们的基础信息。
+            </p>
           )}
         </section>
 

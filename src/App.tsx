@@ -1,5 +1,5 @@
 import "./App.css";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DEFAULT_ERC20_ADDRESS } from "./config/appConfig";
 import { useWallet } from "./hooks/useWallet";
 import { useErc20 } from "./hooks/useErc20";
@@ -8,12 +8,16 @@ import { useEip191Auth } from "./hooks/useEip191";
 import { useEip712Auth } from "./hooks/useEip712";
 import { useMempool } from "./hooks/useMempool";
 import { useUsdtTransfers } from "./hooks/useUsdtTransfers";
+import { getAddress, isAddress } from "ethers";
 
 function App() {
   const [messageToSign, setMessageToSign] = useState("Hello from ethers.js");
   const [personalSignature, setPersonalSignature] = useState("");
   const [isSigningMessage, setIsSigningMessage] = useState(false);
   const [watchCurrentAccountOnly, setWatchCurrentAccountOnly] = useState(true);
+  const [usdtFromFilter, setUsdtFromFilter] = useState("");
+  const [usdtToFilter, setUsdtToFilter] = useState("");
+  const [usdtFilterError, setUsdtFilterError] = useState<string | null>(null);
 
   const {
     provider,
@@ -100,6 +104,18 @@ function App() {
     clearPendingTxs,
   } = useMempool(provider, watchCurrentAccountOnly ? account : null);
 
+  const normalizedUsdtFrom = useMemo(() => {
+    if (!usdtFromFilter) return null;
+    if (!isAddress(usdtFromFilter)) return null;
+    return getAddress(usdtFromFilter);
+  }, [usdtFromFilter]);
+
+  const normalizedUsdtTo = useMemo(() => {
+    if (!usdtToFilter) return null;
+    if (!isAddress(usdtToFilter)) return null;
+    return getAddress(usdtToFilter);
+  }, [usdtToFilter]);
+
   const {
     transfers: usdtTransfers,
     isListening: isListeningUsdt,
@@ -107,7 +123,10 @@ function App() {
     startListening: startUsdtListener,
     stopListening: stopUsdtListener,
     resetTransfers: resetUsdtTransfers,
-  } = useUsdtTransfers();
+  } = useUsdtTransfers({
+    from: normalizedUsdtFrom,
+    to: normalizedUsdtTo,
+  });
 
   useEffect(() => {
     resetSiwe();
@@ -140,6 +159,19 @@ function App() {
       setIsSigningMessage(false);
     }
   }, [signer, messageToSign, setWalletError]);
+
+  const handleStartUsdtListener = useCallback(() => {
+    if (usdtFromFilter && !isAddress(usdtFromFilter)) {
+      setUsdtFilterError("From 地址不是有效的以太坊地址");
+      return;
+    }
+    if (usdtToFilter && !isAddress(usdtToFilter)) {
+      setUsdtFilterError("To 地址不是有效的以太坊地址");
+      return;
+    }
+    setUsdtFilterError(null);
+    startUsdtListener();
+  }, [usdtFromFilter, usdtToFilter, startUsdtListener]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -677,9 +709,36 @@ function App() {
             </div>
           </div>
 
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <label className="text-xs uppercase tracking-wide text-slate-400">
+              From 地址（可选）
+              <input
+                value={usdtFromFilter}
+                onChange={(event) => {
+                  setUsdtFromFilter(event.target.value);
+                  setUsdtFilterError(null);
+                }}
+                placeholder="0x..."
+                className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 font-mono text-sm text-slate-100 outline-none focus:border-emerald-400"
+              />
+            </label>
+            <label className="text-xs uppercase tracking-wide text-slate-400">
+              To 地址（可选）
+              <input
+                value={usdtToFilter}
+                onChange={(event) => {
+                  setUsdtToFilter(event.target.value);
+                  setUsdtFilterError(null);
+                }}
+                placeholder="0x..."
+                className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 font-mono text-sm text-slate-100 outline-none focus:border-emerald-400"
+              />
+            </label>
+          </div>
+
           <div className="mt-4 flex flex-wrap gap-3">
             <button
-              onClick={isListeningUsdt ? stopUsdtListener : startUsdtListener}
+              onClick={isListeningUsdt ? stopUsdtListener : handleStartUsdtListener}
               className="flex-1 rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isListeningUsdt ? "Stop listening" : "Start listening"}
@@ -691,6 +750,12 @@ function App() {
               Clear list
             </button>
           </div>
+
+          {usdtFilterError && (
+            <p className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+              {usdtFilterError}
+            </p>
+          )}
 
           {usdtError && (
             <p className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">

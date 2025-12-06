@@ -1,5 +1,12 @@
-import { Contract, JsonRpcProvider, formatUnits } from "ethers";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Contract,
+  JsonRpcProvider,
+  formatUnits,
+  getAddress,
+  isAddress,
+} from "ethers";
+import type { DeferredTopicFilter } from "ethers";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   INFURA_MAINNET_RPC_URL,
   USDT_CONTRACT_ADDRESS,
@@ -14,7 +21,12 @@ const USDT_TRANSFER_ABI = [
 
 const MAX_USDT_ENTRIES = 20;
 
-export function useUsdtTransfers() {
+type TransferFilterOptions = {
+  from?: string | null;
+  to?: string | null;
+};
+
+export function useUsdtTransfers(options?: TransferFilterOptions) {
   const providerRef = useRef<JsonRpcProvider | null>(null);
   const contractRef = useRef<Contract | null>(null);
   const listenerRef = useRef<((
@@ -23,10 +35,23 @@ export function useUsdtTransfers() {
     value: bigint,
     event: { blockNumber?: number; transactionHash?: string; getBlock?: () => Promise<{ timestamp: number } | null> }
   ) => void) | null>(null);
+  const activeFilterRef = useRef<DeferredTopicFilter | null>(null);
 
   const [transfers, setTransfers] = useState<UsdtTransfer[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const normalizedFrom = useMemo(() => {
+    if (!options?.from) return null;
+    if (!isAddress(options.from)) return null;
+    return getAddress(options.from);
+  }, [options?.from]);
+
+  const normalizedTo = useMemo(() => {
+    if (!options?.to) return null;
+    if (!isAddress(options.to)) return null;
+    return getAddress(options.to);
+  }, [options?.to]);
 
   const ensureContract = useCallback(() => {
     if (!providerRef.current) {
@@ -45,9 +70,14 @@ export function useUsdtTransfers() {
   const stopInternal = useCallback(() => {
     const contract = contractRef.current;
     if (contract && listenerRef.current) {
-      contract.off("Transfer", listenerRef.current);
+      if (activeFilterRef.current) {
+        contract.off(activeFilterRef.current, listenerRef.current);
+      } else {
+        contract.off("Transfer", listenerRef.current);
+      }
     }
     listenerRef.current = null;
+    activeFilterRef.current = null;
     setIsListening(false);
   }, []);
 
@@ -88,13 +118,23 @@ export function useUsdtTransfers() {
       };
 
       listenerRef.current = listener;
-      contract.on("Transfer", listener);
+      if (normalizedFrom || normalizedTo) {
+        const filter = contract.filters.Transfer(
+          normalizedFrom ?? null,
+          normalizedTo ?? null
+        );
+        activeFilterRef.current = filter;
+        contract.on(filter, listener);
+      } else {
+        activeFilterRef.current = null;
+        contract.on("Transfer", listener);
+      }
       setIsListening(true);
     } catch (err) {
       stopInternal();
       setError((err as Error).message);
     }
-  }, [ensureContract, isListening, stopInternal]);
+  }, [ensureContract, isListening, stopInternal, normalizedFrom, normalizedTo]);
 
   const stopListening = useCallback(() => {
     stopInternal();

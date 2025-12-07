@@ -1,5 +1,5 @@
 import "./App.css";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_ERC20_ADDRESS,
   DEFAULT_MULTICALL_TOKENS,
@@ -136,17 +136,11 @@ function App() {
     clearPendingTxs,
   } = useMempool(provider, watchCurrentAccountOnly ? account : null);
 
-  const normalizedUsdtFrom = useMemo(() => {
-    if (!usdtFromFilter) return null;
-    if (!isAddress(usdtFromFilter)) return null;
-    return getAddress(usdtFromFilter);
-  }, [usdtFromFilter]);
+  const normalizeAddress = (value: string) =>
+    value && isAddress(value) ? getAddress(value) : null;
 
-  const normalizedUsdtTo = useMemo(() => {
-    if (!usdtToFilter) return null;
-    if (!isAddress(usdtToFilter)) return null;
-    return getAddress(usdtToFilter);
-  }, [usdtToFilter]);
+  const normalizedUsdtFrom = normalizeAddress(usdtFromFilter);
+  const normalizedUsdtTo = normalizeAddress(usdtToFilter);
 
   const {
     transfers: usdtTransfers,

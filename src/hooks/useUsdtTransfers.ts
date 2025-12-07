@@ -6,7 +6,7 @@ import {
   isAddress,
 } from "ethers";
 import type { DeferredTopicFilter } from "ethers";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   INFURA_MAINNET_RPC_URL,
   USDT_CONTRACT_ADDRESS,
@@ -41,19 +41,13 @@ export function useUsdtTransfers(options?: TransferFilterOptions) {
   const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const normalizedFrom = useMemo(() => {
-    if (!options?.from) return null;
-    if (!isAddress(options.from)) return null;
-    return getAddress(options.from);
-  }, [options?.from]);
+  const normalizeAddress = (value?: string | null) =>
+    value && isAddress(value) ? getAddress(value) : null;
 
-  const normalizedTo = useMemo(() => {
-    if (!options?.to) return null;
-    if (!isAddress(options.to)) return null;
-    return getAddress(options.to);
-  }, [options?.to]);
+  const normalizedFrom = normalizeAddress(options?.from ?? null);
+  const normalizedTo = normalizeAddress(options?.to ?? null);
 
-  const ensureContract = useCallback(() => {
+  const ensureContract = () => {
     if (!providerRef.current) {
       providerRef.current = new JsonRpcProvider(INFURA_MAINNET_RPC_URL, 1);
     }
@@ -65,7 +59,7 @@ export function useUsdtTransfers(options?: TransferFilterOptions) {
       );
     }
     return contractRef.current;
-  }, []);
+  };
 
   const stopInternal = useCallback(() => {
     const contract = contractRef.current;
@@ -81,7 +75,7 @@ export function useUsdtTransfers(options?: TransferFilterOptions) {
     setIsListening(false);
   }, []);
 
-  const startListening = useCallback(() => {
+  const startListening = () => {
     if (isListening) {
       return;
     }
@@ -134,15 +128,15 @@ export function useUsdtTransfers(options?: TransferFilterOptions) {
       stopInternal();
       setError((err as Error).message);
     }
-  }, [ensureContract, isListening, stopInternal, normalizedFrom, normalizedTo]);
+  };
 
-  const stopListening = useCallback(() => {
+  const stopListening = () => {
     stopInternal();
-  }, [stopInternal]);
+  };
 
-  const resetTransfers = useCallback(() => {
+  const resetTransfers = () => {
     setTransfers([]);
-  }, []);
+  };
 
   useEffect(() => {
     return () => {

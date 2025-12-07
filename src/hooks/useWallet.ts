@@ -4,7 +4,7 @@ import {
   formatEther,
   getAddress,
 } from "ethers";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type WalletOptions = {
   onAccountChanged?: (account: string | null) => void;
@@ -21,17 +21,13 @@ export function useWallet(options?: WalletOptions) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
 
-  const hasMetaMask = useMemo(
-    () => typeof window !== "undefined" && Boolean(window.ethereum),
-    []
-  );
+  const hasMetaMask = typeof window !== "undefined" && Boolean(window.ethereum);
 
-  const shortAccount = useMemo(() => {
-    if (!account) return "";
-    return `${account.slice(0, 6)}...${account.slice(-4)}`;
-  }, [account]);
+  const shortAccount = account
+    ? `${account.slice(0, 6)}...${account.slice(-4)}`
+    : "";
 
-  const refreshBalance = useCallback(async () => {
+  const refreshBalance = async () => {
     if (!provider || !account) return;
     try {
       const raw = await provider.getBalance(account);
@@ -39,7 +35,7 @@ export function useWallet(options?: WalletOptions) {
     } catch (error) {
       setWalletError((error as Error).message);
     }
-  }, [provider, account]);
+  };
 
   const disconnectWallet = useCallback(() => {
     setProvider(null);
@@ -52,7 +48,7 @@ export function useWallet(options?: WalletOptions) {
     options?.onDisconnect?.();
   }, [options]);
 
-  const connectWallet = useCallback(async () => {
+  const connectWallet = async () => {
     if (!window.ethereum) {
       setWalletError("MetaMask is not available in this browser");
       return;
@@ -101,7 +97,7 @@ export function useWallet(options?: WalletOptions) {
     } finally {
       setIsConnecting(false);
     }
-  }, [disconnectWallet, options]);
+  };
 
   useEffect(() => {
     const ethereum = window.ethereum;
@@ -130,13 +126,18 @@ export function useWallet(options?: WalletOptions) {
 
     const handleChainChanged = (..._args: unknown[]) => {
       provider
-      .getNetwork()
-      .then((network) => {
-        setChainId(Number(network.chainId));
-        setNetworkName(network.name);
-        return refreshBalance();
-      })
-      .catch((error) => setWalletError((error as Error).message));
+        .getNetwork()
+        .then((network) => {
+          setChainId(Number(network.chainId));
+          setNetworkName(network.name);
+          if (!account) return;
+          return provider.getBalance(account);
+        })
+        .then((raw) => {
+          if (typeof raw === "undefined") return;
+          setBalance(formatEther(raw));
+        })
+        .catch((error) => setWalletError((error as Error).message));
     };
 
     ethereum.on?.("accountsChanged", handleAccountsChanged);
@@ -146,7 +147,7 @@ export function useWallet(options?: WalletOptions) {
       ethereum.removeListener?.("accountsChanged", handleAccountsChanged);
       ethereum.removeListener?.("chainChanged", handleChainChanged);
     };
-  }, [provider, refreshBalance, disconnectWallet, options]);
+  }, [provider, disconnectWallet, options, account]);
 
   return {
     provider,
